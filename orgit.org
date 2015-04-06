@@ -1,0 +1,66 @@
+#+TITLE: Orgit - Org links to Magit buffers
+
+* ~orgit-status~
+
+Pressing ~C-c l~ in a ~magit-status-mode~ buffer stores a link to that
+buffer.  Later pressing ~C-c C-l~ in an ~org-mode~ buffer inserts that
+link at point.
+
+~C-c l~ is only the binding suggested by the Org maintainers, you are
+responsible for setting that binding yourself (or to us other keys of
+your choosing):
+
+#+BEGIN_SRC emacs-lisp
+  (global-set-key [?\C-c ?l] 'org-store-link)
+#+END_SRC
+
+This will insert a string like this:
+
+#+BEGIN_SRC org
+[[orgit:~/.emacs.d/lib/orgit/][~/.emacs.d/lib/orgit/ (magit-status)]]
+#+END_SRC
+
+Resulting in a link like [[orgit:~/.emacs.d/lib/orgit/][~/.emacs.d/lib/orgit/ (magit-status)]].
+
+Following such a link using e.g. ~C-c o~ will show the status buffer for
+the respective repository.  That buffer will show the current status
+as usual, not what was current when the link was created.
+
+And of course this assumes that the repository still exists in the
+same location.  As we will see later you can also create links to
+repositories whose location might change.
+
+* ~orgit-rev~
+
+You can also link to particular revisions.  Storing a link inside a
+~magit-revision-mode~ buffer and later inserting it in an ~org-mode~
+buffer results this string being inserted:
+
+[[orgit-rev:~/.emacs.d/lib/orgit/::efde657483d698850c8b1e70b48881b93438ddc5][~/.emacs.d/lib/orgit/ (magit-rev efde657483d698850c8b1e70b48881b93438ddc5)]]
+
+* ~orgit-diff~ 
+
+(not implemented yet)
+
+* ~orgit-log~
+
+In a ~magit-log-mode~ buffer ...
+
+* Normalizing revision names
+
+With a prefix argument ... (not implemented yet).
+
+* Normalizing repository locations
+
+When you rarely move repositories and don't share the Org files
+containing links to Magit buffers, then saving the absolute names to
+repositories in links, is not much of a problem.
+
+But ... (not implemented yet)
+
+* Exporting
+
+To export do ...
+
+Exported ~orgit-log~ links lose all arguments and always link to the log
+for all files for a single revision.
