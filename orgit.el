@@ -30,9 +30,9 @@
 ;; This package defines several Org link types which can be used to
 ;; link to certain Magit buffers.
 ;;
-;;    orgit:/path/to/repo/           links to a `magit-status' buffer
-;;    orgit-log:/path/to/repo/::REV  links to a `magit-log' buffer
-;;    orgit-rev:/path/to/repo/::REV  links to a `magit-revision' buffer
+;;    orgit:/path/to/repo/            links to a `magit-status' buffer
+;;    orgit-log:/path/to/repo/::ARGS  links to a `magit-log' buffer
+;;    orgit-rev:/path/to/repo/::REV   links to a `magit-revision' buffer
 
 ;; Such links can be stored from corresponding Magit buffers using
 ;; the command `org-store-link'.
@@ -56,6 +56,8 @@
 ;;    git config orgit.status http://example.com/repo/overview
 ;;    git config orgit.log http://example.com/repo/history/%r
 ;;    git config orgit.rev http://example.com/repo/revision/%r
+
+;; The `orgit-log' link type ...
 
 ;;; Code:
 
@@ -129,6 +131,26 @@ If all of the above fails then `orgit-export' raises an error."
   :group 'orgit
   :type 'string)
 
+(defcustom orgit-log-user-switches
+  '("--graph" "--decorate" "--show-signature"
+    "--stat" "--simplify-by-decoration")
+  "Switches that are not saved or honored in links to log buffers.
+
+Links to log buffers contain the arguments that were in effect
+when the link was created, except for the switches listed here.
+When following such a link the contained arguments are honored
+if and only if they are not part of the current value of this
+variable.  Instead each of the listed arguments is used if and
+only if it is a member of the currently effective value of
+`magit-log-arguments'.
+
+This effectively is a blacklist that allows users to force
+certain switches to be always or never used, depending on their
+own personal preference, instead of being forced to use what the
+author of the link prefers."
+  :group 'orgit
+  :type '(repeat string))
+
 ;;; Status
 
 ;;;###autoload
@@ -164,23 +186,30 @@ If all of the above fails then `orgit-export' raises an error."
 (defun orgit-log-store ()
   (when (eq major-mode 'magit-log-mode)
     (let ((repo (abbreviate-file-name default-directory))
-          (rev  (cadr magit-refresh-args)))
-      ;; TODO Once version 2.1.0 of Magit is released, support multi-rev logs.
-      (when (listp rev)
-        (setq rev (car rev)))
-      ;; TODO Once version 2.1.0 of Magit is released, remove this kludge.
-      (when (fboundp 'magit-name-rev)
-        (setq rev (magit-name-rev rev)))
-      (org-store-link-props
-       :type        "orgit-log"
-       :link        (format "orgit-log:%s::%s" repo rev)
-       :description (format "%s (magit-log %s)" repo rev)))))
+          (args (cdr magit-refresh-args)))
+      (cl-destructuring-bind (revs git-args files) args
+        (setq git-args (--filter (not (member it orgit-log-user-switches))
+                                 git-args))
+        (org-store-link-props
+         :type "orgit-log"
+         :link (format "orgit-log:%s::%S" repo (list revs git-args files))
+         :description
+         (format "%s (magit-log %s)" repo
+                 (mapconcat #'identity `(,@git-args ,@revs
+                                         ,@(and files (cons "--" files)))
+                            " ")))))))
 
 ;;;###autoload
 (defun orgit-log-open (path)
-  (cl-destructuring-bind (default-directory rev)
-      (split-string path "::")
-    (magit-log (list rev))))
+  (let ((log-args (--filter (member it orgit-log-user-switches)
+                            (magit-log-arguments))))
+    (cl-destructuring-bind (default-directory args)
+        (split-string path "::")
+      (if (string-match-p "^(" args)
+          (cl-destructuring-bind (revs git-args files)
+              (read args)
+            (magit-log revs (nconc git-args log-args) files))
+        (magit-log (list args) log-args)))))
 
 ;;;###autoload
 (defun orgit-log-export (path desc format)
@@ -224,6 +253,10 @@ If all of the above fails then `orgit-export' raises an error."
          (remote  (cond ((= (length remotes) 1) (car remotes))
                         ((member remote remotes) remote)
                         ((member orgit-remote remotes) orgit-remote))))
+    (when (equal gitvar "log")
+      (setq rev (car (read rev)))
+      (when (string-match-p "\\.\\.\\(.+\\)$" rev)
+        (setq rev (match-string 1 rev))))
     (if remote
         (-if-let
             (link (or (-when-let (url (magit-get "orgit" gitvar))
