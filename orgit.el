@@ -30,12 +30,30 @@
 ;; This package defines several Org link types which can be used to
 ;; link to certain Magit buffers.
 ;;
-;;    orgit:/path/to/repo/           links to a `magit-status' buffer
-;;    orgit-log:/path/to/repo/::REV  links to a `magit-log' buffer
-;;    orgit-rev:/path/to/repo/::REV  links to a `magit-revision' buffer
+;;    orgit:/path/to/repo/            links to a `magit-status' buffer
+;;    orgit-log:/path/to/repo/::ARGS  links to a `magit-log' buffer
+;;    orgit-rev:/path/to/repo/::ARGS  links to a `magit-revision' buffer
 
-;; Such links can be stored from corresponding Magit buffers using
-;; the command `org-store-link'.
+;; Inside a Magit buffers a link can be stored using "C-c l"
+;; (`org-store-link').
+
+;; For the `orgit-log' type, the stored ARGS has the format:
+;;
+;;   ((REV-OR-RANGE...) [(ARG...) [(FILE...)]])
+;;
+;; For the `orgit-rev' type, the stored ARGS has the format:
+;;
+;;   (REV [(ARG...) [(FILE...)]])
+;;
+;; For historic reasons ARGS may also be a single revision, but
+;; `org-store-link' no longer stores links using that format.
+
+;; Inside an Org buffer a previously stored link can be inserted using
+;; "C-c C-l" (`org-insert-link').  That inserts [[LINK][DESCRIPTION]],
+;; where LINK has the format described above and DESCRIPTION depends
+;; on the following variables:
+
+;;   TODO
 
 ;; When an Org file containing such links is exported, then the url of
 ;; the remote configured with `orgit-remote' is used to generate a web
@@ -61,6 +79,7 @@
 
 (require 'cl-lib)
 (require 'dash)
+(require 'dash-functional)
 (require 'format-spec)
 (require 'magit)
 (require 'org)
@@ -164,18 +183,22 @@ If all of the above fails then `orgit-export' raises an error."
 (defun orgit-log-store ()
   (when (eq major-mode 'magit-log-mode)
     (let ((repo (abbreviate-file-name default-directory))
-          (rev  (caar magit-refresh-args)))
+          (args magit-refresh-args))
+      (unless (nth 2 args)
+        (setq args (butlast args (if (cadr args) 1 2))))
       (org-store-link-props
        :type        "orgit-log"
-       :link        (format "orgit-log:%s::%s" repo rev)
-       :description (format "%s (magit-log %s)" repo rev)))))
+       :link        (format "orgit-log:%s::%S" repo args)
+       :description (format "%s %s" repo (cons 'magit-log args))))))
 
 ;;;###autoload
 (defun orgit-log-open (path)
-  (-let [(default-directory rev)
+  (-let [(default-directory args)
          (split-string path "::")]
     (apply #'magit-log
-           (cons (list rev) (magit-log-arguments)))))
+           (if (string-prefix-p "(" args)
+               (read args)
+             (cons (list args) (magit-log-arguments))))))
 
 ;;;###autoload
 (defun orgit-log-export (path desc format)
@@ -192,20 +215,23 @@ If all of the above fails then `orgit-export' raises an error."
 (defun orgit-rev-store ()
   (when (eq major-mode 'magit-revision-mode)
     (let ((repo (abbreviate-file-name default-directory))
-          (rev  (car magit-refresh-args)))
-      (unless (magit-ref-p rev)
-        (setq rev (magit-rev-abbrev rev)))
+          (args (copy-sequence magit-refresh-args)))
+      (setcdr args (cddr args))
+      (unless (nth 2 args)
+        (setq args (butlast args (if (cadr args) 1 2))))
       (org-store-link-props
        :type        "orgit-rev"
-       :link        (format "orgit-rev:%s::%s" repo rev)
-       :description (format "%s (magit-rev %s)" repo rev)))))
+       :link        (format "orgit-rev:%s::%S" repo args)
+       :description (format "%s %s" repo (cons 'magit-rev args))))))
 
 ;;;###autoload
 (defun orgit-rev-open (path)
-  (-let [(default-directory rev)
+  (-let [(default-directory args)
          (split-string path "::")]
     (apply #'magit-show-commit
-           (cons rev (magit-diff-arguments)))))
+           (if (string-prefix-p "(" args)
+               (read args)
+             (cons args (magit-diff-arguments))))))
 
 ;;;###autoload
 (defun orgit-rev-export (path desc format)
@@ -221,6 +247,10 @@ If all of the above fails then `orgit-export' raises an error."
           (remote  (cond ((= (length remotes) 1) (car remotes))
                          ((member remote remotes) remote)
                          ((member orgit-remote remotes) orgit-remote))))
+    (when (and rev (string-prefix-p "(" rev))
+      (setq rev (car (read rev)))
+      (when (listp rev)
+        (setq rev (car rev))))
     (if remote
         (-if-let
             (link (or (-when-let (url (magit-get "orgit" gitvar))
